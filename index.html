@@ -4,57 +4,148 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Phigros B30 算分器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <style>
-  body { background: #11131c; }
-  .phi { color: #ffe27a; }
-  .diff-EZ { background:#2f6f4f } .diff-HD { background:#2d5f9a }
-  .diff-IN { background:#9a3b3b } .diff-AT { background:#555a66 }
-  input[type=checkbox] { accent-color: #ffe27a; width: 1.1rem; height: 1.1rem; }
+  :root {
+    --night: #0d0f24; --ink: #e9ecff; --muted: #9aa3d0;
+    --gold: #ffe27a;   /* 判定線 */
+    --tap: #5cc8ff;    /* Tap 音符 */
+    --flick: #ff6f91;  /* Flick 音符 */
+    --drag: #f3e46a;   /* Drag 音符 */
+    --EZ: #3cc48b; --HD: #4f9bff; --IN: #ff5f6d; --AT: #9aa0b5;
+    --edge: rgba(140, 150, 255, .20);
+  }
+  html { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--ink); overflow-x: hidden;
+    font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+    background:
+      radial-gradient(900px 520px at 10% -8%, rgba(106, 92, 255, .30), transparent 60%),
+      radial-gradient(760px 480px at 100% 8%, rgba(255, 111, 145, .15), transparent 55%),
+      radial-gradient(760px 620px at 55% 112%, rgba(92, 200, 255, .15), transparent 60%),
+      var(--night);
+    background-attachment: fixed;
+  }
+  .num, .title, .rnum, .ptitle, .badge { font-family: 'Rajdhani', 'Noto Sans TC', sans-serif; }
+  .num, .rnum { font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .phi { color: var(--gold); }
+  .best { color: var(--tap); }
+
+  .wrap { max-width: 72rem; margin: 0 auto; padding: 1.25rem 1rem 2rem; }
+  @media (min-width: 768px) { .wrap { padding: 2rem 1.5rem 3rem; } }
+
+  /* 標題與判定線 */
+  .hero { padding: .5rem 0 1.25rem; }
+  .title { margin: 0; font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; line-height: 1.1; letter-spacing: .01em; }
+  .sub { margin: .2rem 0 0; font-size: .9rem; }
+  .stage { position: relative; height: 56px; margin: .5rem -8vw .1rem; transform: rotate(-2.5deg); pointer-events: none; }
+  .jline {
+    position: absolute; left: 0; right: 0; top: 28px; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold) 10%, var(--gold) 90%, transparent);
+    box-shadow: 0 0 14px 2px rgba(255, 226, 122, .5);
+    transform-origin: left center; animation: sweep .9s cubic-bezier(.2, .8, .2, 1) both;
+  }
+  .note { position: absolute; height: 12px; border-radius: 3px; border: 1.5px solid rgba(255, 255, 255, .85); animation: fade .6s .7s both; }
+  .note.tap   { left: 16%; top: 7px;  width: 52px; background: var(--tap);   box-shadow: 0 0 14px var(--tap); }
+  .note.drag  { left: 42%; top: 12px; width: 26px; background: var(--drag);  box-shadow: 0 0 14px var(--drag); }
+  .note.flick { left: 74%; top: 36px; width: 52px; background: var(--flick); box-shadow: 0 0 14px var(--flick); }
+  @keyframes sweep { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .jline, .note { animation: none; } }
+
+  /* 面板 */
+  .panel {
+    padding: 1rem; border-radius: 14px; border: 1px solid var(--edge);
+    background: linear-gradient(180deg, rgba(36, 41, 88, .78), rgba(22, 26, 58, .80));
+  }
+  .rpanel { border-top: 2px solid var(--gold); box-shadow: 0 -8px 24px -12px rgba(255, 226, 122, .55); }
+  .rnum { margin-top: .1rem; font-size: 3.6rem; line-height: 1; font-weight: 700; color: var(--gold); text-shadow: 0 0 22px rgba(255, 226, 122, .45); }
+  .panel-phi { border-color: rgba(255, 226, 122, .35); }
+  .panel-best { border-color: rgba(92, 200, 255, .28); }
+  .ptitle { position: relative; margin: 0 0 .6rem; padding-bottom: .45rem; font-size: 1.15rem; font-weight: 700; }
+  .ptitle::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; opacity: .8; background: linear-gradient(90deg, currentColor, transparent 75%); }
+
+  /* 搜尋與排序 */
+  .field { border-radius: 10px; border: 1px solid var(--edge); background: rgba(14, 17, 42, .8); color: var(--ink); padding: .5rem .75rem; }
+  .field::placeholder { color: #7882b3; }
+  select.field option { background: #151937; color: var(--ink); }
+  .field:focus, .acc:focus, .linkbtn:focus-visible, input[type=checkbox]:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  /* 曲目列 */
+  #chartList { scrollbar-width: thin; scrollbar-color: #3a4290 transparent; }
+  .row {
+    display: flex; align-items: center; gap: .65rem; padding: .55rem .75rem;
+    border-radius: 10px; border: 1px solid var(--edge); border-left: 4px solid var(--c);
+    background: rgba(20, 24, 54, .62); transition: background .15s, box-shadow .15s;
+  }
+  .row:hover { background: rgba(34, 40, 86, .78); }
+  .row.on { background: rgba(44, 50, 108, .80); box-shadow: 0 0 0 1px rgba(255, 226, 122, .40), 0 0 18px -6px rgba(255, 226, 122, .5); }
+  input[type=checkbox] { accent-color: var(--gold); width: 1.15rem; height: 1.15rem; flex: none; }
+  .acc { width: 6rem; padding: .3rem .5rem; text-align: right; font-size: .9rem; border-radius: 8px; border: 1px solid var(--edge); background: rgba(10, 12, 32, .85); color: var(--ink); }
+  .badge { display: inline-block; min-width: 2rem; padding: .05rem .4rem; border-radius: 4px; text-align: center; font-size: .75rem; font-weight: 700; color: #0d0f24; }
+  .diff-EZ { background: var(--EZ); } .diff-HD { background: var(--HD); }
+  .diff-IN { background: var(--IN); } .diff-AT { background: var(--AT); }
+
+  /* 結果列 */
+  .rrow { display: flex; align-items: center; gap: .5rem; padding: .4rem 0; font-size: .9rem; border-bottom: 1px solid rgba(140, 150, 255, .14); }
+  .rrow:last-child { border-bottom: 0; }
+  .rank { width: 1.6rem; text-align: right; color: var(--muted); }
+  .rval { width: 4.2rem; text-align: right; font-size: 1.05rem; font-weight: 700; }
+  .linkbtn { padding: .25rem; background: none; border: 0; color: var(--muted); font-size: .78rem; text-decoration: underline; cursor: pointer; }
+  .linkbtn:hover { color: var(--flick); }
+  footer { margin-top: 2rem; font-size: .75rem; line-height: 1.7; color: #7882b3; }
 </style>
 </head>
-<body class="text-slate-100 min-h-screen">
-<div class="max-w-6xl mx-auto p-4 md:p-6">
-  <header class="mb-6">
-    <h1 class="text-2xl md:text-3xl font-bold tracking-tight">Phigros B30 算分器</h1>
-    <p class="text-slate-400 text-sm mt-1">勾選曲目、輸入 Acc，自動計算 R 值與 Best 30 平均。資料會存在這個瀏覽器裡。</p>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <h1 class="title">Phigros B30 算分器</h1>
+    <div class="stage" aria-hidden="true">
+      <span class="jline"></span>
+      <span class="note tap"></span>
+      <span class="note drag"></span>
+      <span class="note flick"></span>
+    </div>
+    <p class="sub muted">勾選曲目、輸入 Acc，自動計算 R 值與 Best 30 平均。資料會存在這個瀏覽器裡。</p>
   </header>
 
   <div class="grid lg:grid-cols-2 gap-6">
     <!-- 左：曲目清單 -->
     <section>
       <div class="flex gap-2 mb-3">
-        <input id="search" type="search" placeholder="搜尋曲名"
-          class="min-w-0 flex-1 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 focus:outline-none focus:border-yellow-300">
-        <select id="sort" aria-label="排序方式"
-          class="rounded-lg bg-slate-800 border border-slate-700 px-2 py-2 text-sm focus:outline-none focus:border-yellow-300">
+        <input id="search" type="search" placeholder="搜尋曲名" class="field min-w-0 flex-1">
+        <select id="sort" aria-label="排序方式" class="field text-sm">
           <option value="default">依資料順序</option>
-          <option value="desc">定數高 → 低</option>
-          <option value="asc">定數低 → 高</option>
+          <option value="desc">定數 高到低</option>
+          <option value="asc">定數 低到高</option>
           <option value="name">曲名</option>
         </select>
       </div>
-      <div id="chartList" class="space-y-2 max-h-[60vh] overflow-y-auto pr-1"></div>
-
+      <div id="chartList" class="space-y-2 max-h-[62vh] overflow-y-auto pr-1"></div>
     </section>
 
     <!-- 右：結果 -->
     <section class="lg:sticky lg:top-4 self-start">
-      <div class="rounded-xl bg-slate-800/70 border border-slate-700 p-4">
-        <div class="flex items-end justify-between">
+      <div class="panel rpanel">
+        <div class="flex items-end justify-between gap-3">
           <div>
-            <div class="text-sm text-slate-400">目前 R 值（B27 + Phi 3）÷ 30</div>
-            <div id="avg" class="text-4xl font-bold phi">0.0000</div>
+            <div class="muted text-sm">目前 R 值</div>
+            <div id="avg" class="rnum">0.0000</div>
+            <div class="muted text-xs mt-1">（B27 + Phi 3）÷ 30</div>
           </div>
-          <button id="clearAll" class="text-xs text-slate-400 hover:text-red-300 underline">清除全部紀錄</button>
+          <button id="clearAll" class="linkbtn">清除全部紀錄</button>
         </div>
-        <div id="meta" class="text-xs text-slate-400 mt-2"></div>
+        <div id="meta" class="muted text-xs mt-3"></div>
       </div>
       <div id="result" class="mt-4 space-y-4"></div>
     </section>
   </div>
 
-  <footer class="mt-8 text-xs text-slate-500 leading-relaxed">
+  <footer>
     單曲 R = ((Acc − 55) ÷ 45)² × 定數（Acc 低於 70% 為 0）。Phi（Acc 100%）才進 Phi 3，取定數最高的 3 首；其餘取單曲 R 最高的 27 首。
     曲目請自行在程式碼的 SAMPLE 陣列新增，定數請對照最新資料。
   </footer>
@@ -116,21 +207,20 @@ function renderList() {
   else if (state.sort === 'asc') rows.sort((a, b) => a.c - b.c || a.name.localeCompare(b.name));
   else if (state.sort === 'name') rows.sort((a, b) => a.name.localeCompare(b.name) || DIFFS.indexOf(a.diff) - DIFFS.indexOf(b.diff));
   if (!rows.length) {
-    box.innerHTML = `<p class="text-sm text-slate-400 p-3">${all.length ? '找不到符合的曲目。' : '還沒有曲目。請在程式碼的 SAMPLE 陣列加入曲目。'}</p>`;
+    box.innerHTML = `<p class="text-sm muted p-3">${all.length ? '找不到符合的曲目。' : '還沒有曲目。請在程式碼的 SAMPLE 陣列加入曲目。'}</p>`;
     return;
   }
   box.innerHTML = rows.map(ch => {
     const k = keyOf(ch);
     const e = state.entries[k] || {};
-    return `<div class="flex items-center gap-2 rounded-lg bg-slate-800/60 border border-slate-700 px-3 py-2">
+    return `<div data-row class="row ${e.checked ? 'on' : ''}" style="--c: var(--${ch.diff})">
       <input type="checkbox" data-k="${esc(k)}" data-role="chk" ${e.checked ? 'checked' : ''} aria-label="計入 ${esc(ch.name)} ${ch.diff}">
       <div class="min-w-0 flex-1">
         <div class="truncate text-sm font-medium">${esc(ch.name)}</div>
-        <div class="text-xs text-slate-400"><span class="diff-${ch.diff} rounded px-1.5 py-0.5 text-white">${ch.diff}</span> 定數 ${ch.c.toFixed(1)}</div>
+        <div class="mt-0.5 flex items-center gap-2 text-xs muted"><span class="badge diff-${ch.diff}">${ch.diff}</span><span>定數 <b class="num">${ch.c.toFixed(1)}</b></span></div>
       </div>
       <input type="number" data-k="${esc(k)}" data-role="acc" min="0" max="100" step="0.01" placeholder="Acc %"
-        value="${e.acc != null ? e.acc : ''}"
-        class="w-24 rounded bg-slate-900 border border-slate-700 px-2 py-1 text-right text-sm focus:outline-none focus:border-yellow-300">
+        value="${e.acc != null ? e.acc : ''}" class="acc">
     </div>`;
   }).join('');
 }
@@ -155,18 +245,18 @@ function renderResult() {
   document.getElementById('meta').textContent =
     `已計入 ${played.length} 首；B27 ${best.length}/27，Phi ${phi.length}/3。不足 30 首時，空缺以 0 計算。`;
 
-  const row = (p, i, isPhi) => `<li class="flex items-center gap-2 py-1.5 border-b border-slate-700/60 last:border-0 text-sm">
-    <span class="w-6 text-right text-slate-500">${i + 1}</span>
-    <span class="diff-${p.ch.diff} rounded px-1.5 text-xs text-white">${p.ch.diff}</span>
+  const row = (p, i, isPhi) => `<li class="rrow">
+    <span class="rank num">${i + 1}</span>
+    <span class="badge diff-${p.ch.diff}">${p.ch.diff}</span>
     <span class="flex-1 truncate">${esc(p.ch.name)}</span>
-    <span class="text-slate-400 text-xs">${p.ch.c.toFixed(1)} / ${p.acc.toFixed(2)}%</span>
-    <span class="w-16 text-right font-semibold ${isPhi ? 'phi' : ''}">${(isPhi ? p.ch.c : p.r).toFixed(3)}</span>
+    <span class="text-xs muted num">${p.ch.c.toFixed(1)} / ${p.acc.toFixed(2)}%</span>
+    <span class="rval num ${isPhi ? 'phi' : ''}">${(isPhi ? p.ch.c : p.r).toFixed(3)}</span>
   </li>`;
 
-  const block = (title, arr, isPhi) => `<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-4">
-    <h2 class="font-semibold mb-2 ${isPhi ? 'phi' : ''}">${title}</h2>
+  const block = (title, arr, isPhi) => `<div class="panel ${isPhi ? 'panel-phi' : 'panel-best'}">
+    <h2 class="ptitle ${isPhi ? 'phi' : 'best'}">${title}</h2>
     ${arr.length ? `<ul>${arr.map((p, i) => row(p, i, isPhi)).join('')}</ul>`
-      : '<p class="text-sm text-slate-400">還沒有資料。勾選曲目並輸入 Acc 後會顯示在這裡。</p>'}
+      : '<p class="text-sm muted">還沒有資料。勾選曲目並輸入 Acc 後會顯示在這裡。</p>'}
   </div>`;
 
   document.getElementById('result').innerHTML =
@@ -179,6 +269,7 @@ const list = document.getElementById('chartList');
 list.addEventListener('change', ev => {
   const t = ev.target, k = t.dataset.k;
   if (t.dataset.role !== 'chk') return;
+  t.closest('[data-row]').classList.toggle('on', t.checked);
   state.entries[k] = Object.assign({}, state.entries[k], { checked: t.checked });
   save(); renderResult();
 });
@@ -189,7 +280,9 @@ list.addEventListener('input', ev => {
   const e = Object.assign({}, state.entries[k], { acc: t.value });
   if (t.value !== '' && !e.checked) { // 輸入 Acc 時自動勾選
     e.checked = true;
-    t.closest('div.flex').querySelector('[data-role=chk]').checked = true;
+    const row = t.closest('[data-row]');
+    row.querySelector('[data-role=chk]').checked = true;
+    row.classList.add('on');
   }
   state.entries[k] = e;
   save(); renderResult();

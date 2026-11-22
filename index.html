@@ -62,15 +62,14 @@
 
 <script>
 // ===== 曲目資料（自己手動新增）=====
-// 格式：{ name: '曲名', img: '圖片路徑', c: { EZ: 定數, HD: 定數, IN: 定數, AT: 定數 } }
-// - img 可以省略；圖片放在 repo 裡（例如 images/xxx.png），找不到圖時會顯示曲名第一個字
-// - 沒有的難度直接不寫，例如只有 HD 和 IN：c: { HD: 7.5, IN: 12.0 }
+// 格式：{ name: '曲名', c: { EZ: 定數, HD: 定數, IN: 定數, AT: 定數 } }
+// 沒有的難度直接不寫，例如只有 HD 和 IN：c: { HD: 7.5, IN: 12.0 }
 // 下面的定數只是示範，請換成正確的資料
 const SAMPLE = [
-  { name: 'Introduction',  img: 'images/introduction.png', c: { EZ: 2.0, HD: 5.0, IN: 8.0 } },
-  { name: 'Glaciaxion',    img: 'images/glaciaxion.png',   c: { EZ: 4.0, HD: 9.0, IN: 15.0 } },
-  { name: 'Spasmodic',     img: 'images/spasmodic.png',    c: { EZ: 3.0, HD: 8.0, IN: 14.0, AT: 16.0 } },
-  { name: 'Sample Song A', img: 'images/sample-a.png',     c: { EZ: 5.0, HD: 10.0, IN: 13.5, AT: 16.5 } },
+  { name: 'Introduction',  c: { EZ: 2.0, HD: 5.0, IN: 8.0 } },
+  { name: 'Glaciaxion',    c: { EZ: 4.0, HD: 9.0, IN: 15.0 } },
+  { name: 'Spasmodic',     c: { EZ: 3.0, HD: 8.0, IN: 14.0, AT: 16.0 } },
+  { name: 'Sample Song A', c: { EZ: 5.0, HD: 10.0, IN: 13.5, AT: 16.5 } },
   { name: 'Sample Song B', c: { HD: 7.5, IN: 12.0 } }
 ];
 const DIFFS = ['EZ', 'HD', 'IN', 'AT'];
@@ -97,7 +96,7 @@ function songRating(acc, c) {
 function allCharts() {
   const list = [];
   SAMPLE.forEach(s => DIFFS.forEach(d => {
-    if (s.c[d] != null) list.push({ name: s.name, diff: d, c: s.c[d], img: s.img || '' });
+    if (s.c[d] != null) list.push({ name: s.name, diff: d, c: s.c[d] });
   }));
   return list;
 }
@@ -108,15 +107,6 @@ function esc(t) {
 }
 
 // ===== 曲目清單 =====
-// 縮圖：有圖就顯示圖，圖片載入失敗或沒有圖時，顯示曲名第一個字
-function thumb(ch, size) {
-  const letter = esc([...ch.name][0] || '?');
-  const img = ch.img
-    ? `<img src="${esc(ch.img)}" alt="" loading="lazy" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()">`
-    : '';
-  return `<div class="relative shrink-0 overflow-hidden rounded bg-slate-700 text-slate-300 flex items-center justify-center font-semibold" style="width:${size}px;height:${size}px">${letter}${img}</div>`;
-}
-
 function renderList() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   const box = document.getElementById('chartList');
@@ -134,7 +124,6 @@ function renderList() {
     const e = state.entries[k] || {};
     return `<div class="flex items-center gap-2 rounded-lg bg-slate-800/60 border border-slate-700 px-3 py-2">
       <input type="checkbox" data-k="${esc(k)}" data-role="chk" ${e.checked ? 'checked' : ''} aria-label="計入 ${esc(ch.name)} ${ch.diff}">
-      ${thumb(ch, 44)}
       <div class="min-w-0 flex-1">
         <div class="truncate text-sm font-medium">${esc(ch.name)}</div>
         <div class="text-xs text-slate-400"><span class="diff-${ch.diff} rounded px-1.5 py-0.5 text-white">${ch.diff}</span> 定數 ${ch.c.toFixed(1)}</div>
@@ -168,7 +157,6 @@ function renderResult() {
 
   const row = (p, i, isPhi) => `<li class="flex items-center gap-2 py-1.5 border-b border-slate-700/60 last:border-0 text-sm">
     <span class="w-6 text-right text-slate-500">${i + 1}</span>
-    ${thumb(p.ch, 28)}
     <span class="diff-${p.ch.diff} rounded px-1.5 text-xs text-white">${p.ch.diff}</span>
     <span class="flex-1 truncate">${esc(p.ch.name)}</span>
     <span class="text-slate-400 text-xs">${p.ch.c.toFixed(1)} / ${p.acc.toFixed(2)}%</span>

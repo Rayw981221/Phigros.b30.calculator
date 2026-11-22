@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phigros B30 算分器</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<style>
+  body { background: #11131c; }
+  .phi { color: #ffe27a; }
+  .diff-EZ { background:#2f6f4f } .diff-HD { background:#2d5f9a }
+  .diff-IN { background:#9a3b3b } .diff-AT { background:#555a66 }
+  input[type=checkbox] { accent-color: #ffe27a; width: 1.1rem; height: 1.1rem; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen">
+<div class="max-w-6xl mx-auto p-4 md:p-6">
+  <header class="mb-6">
+    <h1 class="text-2xl md:text-3xl font-bold tracking-tight">Phigros B30 算分器</h1>
+    <p class="text-slate-400 text-sm mt-1">勾選曲目、輸入 Acc，自動計算 R 值與 Best 30 平均。資料會存在這個瀏覽器裡。</p>
+  </header>
+
+  <div class="grid lg:grid-cols-2 gap-6">
+    <!-- 左：曲目清單 -->
+    <section>
+      <input id="search" type="search" placeholder="搜尋曲名"
+        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 mb-3 focus:outline-none focus:border-yellow-300">
+      <div id="chartList" class="space-y-2 max-h-[60vh] overflow-y-auto pr-1"></div>
+
+      <details class="mt-4 rounded-lg bg-slate-800/60 border border-slate-700 p-3">
+        <summary class="cursor-pointer text-sm font-medium">新增自訂曲目</summary>
+        <div class="grid grid-cols-2 gap-2 mt-3">
+          <input id="cName" placeholder="曲名" class="col-span-2 rounded bg-slate-900 border border-slate-700 px-2 py-1.5">
+          <select id="cDiff" class="rounded bg-slate-900 border border-slate-700 px-2 py-1.5">
+            <option>EZ</option><option>HD</option><option selected>IN</option><option>AT</option>
+          </select>
+          <input id="cConst" type="number" step="0.1" min="0" max="20" placeholder="定數，例如 15.8"
+            class="rounded bg-slate-900 border border-slate-700 px-2 py-1.5">
+          <button id="cAdd" class="col-span-2 rounded bg-yellow-300 text-slate-900 font-semibold py-2 hover:bg-yellow-200">新增曲目</button>
+          <p id="cMsg" class="col-span-2 text-xs text-slate-400"></p>
+        </div>
+      </details>
+    </section>
+
+    <!-- 右：結果 -->
+    <section class="lg:sticky lg:top-4 self-start">
+      <div class="rounded-xl bg-slate-800/70 border border-slate-700 p-4">
+        <div class="flex items-end justify-between">
+          <div>
+            <div class="text-sm text-slate-400">目前 R 值（B27 + Phi 3）÷ 30</div>
+            <div id="avg" class="text-4xl font-bold phi">0.0000</div>
+          </div>
+          <button id="clearAll" class="text-xs text-slate-400 hover:text-red-300 underline">清除全部紀錄</button>
+        </div>
+        <div id="meta" class="text-xs text-slate-400 mt-2"></div>
+      </div>
+      <div id="result" class="mt-4 space-y-4"></div>
+    </section>
+  </div>
+
+  <footer class="mt-8 text-xs text-slate-500 leading-relaxed">
+    單曲 R = ((Acc − 55) ÷ 45)² × 定數（Acc 低於 70% 為 0）。Phi（Acc 100%）才進 Phi 3，取定數最高的 3 首；其餘取單曲 R 最高的 27 首。
+    內建曲目只是範例，定數請自行對照最新資料修改。
+  </footer>
+</div>
+
+<script>
+// ===== 內建範例資料（定數僅供示範，請自行校正或新增）=====
+const SAMPLE = [
+  { name: 'Introduction',  c: { EZ: 2.0, HD: 5.0, IN: 8.0 } },
+  { name: 'Glaciaxion',    c: { EZ: 4.0, HD: 9.0, IN: 15.0 } },
+  { name: 'Spasmodic',     c: { EZ: 3.0, HD: 8.0, IN: 14.0, AT: 16.0 } },
+  { name: 'Sample Song A', c: { EZ: 5.0, HD: 10.0, IN: 13.5, AT: 16.5 } },
+  { name: 'Sample Song B', c: { HD: 7.5, IN: 12.0 } }
+];
+const DIFFS = ['EZ', 'HD', 'IN', 'AT'];
+const KEY = 'phigrosB30.v1';
+
+// ===== 狀態 =====
+let state = { custom: [], entries: {} }; // entries: { "曲名|難度": { checked, acc } }
+try {
+  const saved = JSON.parse(localStorage.getItem(KEY));
+  if (saved && Array.isArray(saved.custom) && saved.entries) state = saved;
+} catch (e) { /* 讀取失敗就用預設值 */ }
+
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 儲存空間不可用 */ }
+}
+
+// ===== 計算 =====
+function songRating(acc, c) {
+  if (!(acc >= 70)) return 0;
+  const a = Math.min(acc, 100);
+  return Math.pow((a - 55) / 45, 2) * c;
+}
+
+function allCharts() {
+  const list = [];
+  SAMPLE.forEach(s => DIFFS.forEach(d => {
+    if (s.c[d] != null) list.push({ name: s.name, diff: d, c: s.c[d], custom: false });
+  }));
+  state.custom.forEach(s => list.push({ name: s.name, diff: s.diff, c: s.c, custom: true }));
+  return list;
+}
+const keyOf = ch => ch.name + '|' + ch.diff;
+
+function esc(t) {
+  return String(t).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+// ===== 曲目清單 =====
+function renderList() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const box = document.getElementById('chartList');
+  const rows = allCharts().filter(ch => ch.name.toLowerCase().includes(q));
+  if (!rows.length) {
+    box.innerHTML = '<p class="text-sm text-slate-400 p-3">找不到曲目。可以在下方新增自訂曲目。</p>';
+    return;
+  }
+  box.innerHTML = rows.map(ch => {
+    const k = keyOf(ch);
+    const e = state.entries[k] || {};
+    return `<div class="flex items-center gap-2 rounded-lg bg-slate-800/60 border border-slate-700 px-3 py-2">
+      <input type="checkbox" data-k="${esc(k)}" data-role="chk" ${e.checked ? 'checked' : ''} aria-label="計入 ${esc(ch.name)} ${ch.diff}">
+      <div class="min-w-0 flex-1">
+        <div class="truncate text-sm font-medium">${esc(ch.name)}</div>
+        <div class="text-xs text-slate-400"><span class="diff-${ch.diff} rounded px-1.5 py-0.5 text-white">${ch.diff}</span> 定數 ${ch.c.toFixed(1)}</div>
+      </div>
+      <input type="number" data-k="${esc(k)}" data-role="acc" min="0" max="100" step="0.01" placeholder="Acc %"
+        value="${e.acc != null ? e.acc : ''}"
+        class="w-24 rounded bg-slate-900 border border-slate-700 px-2 py-1 text-right text-sm focus:outline-none focus:border-yellow-300">
+      ${ch.custom ? `<button data-k="${esc(k)}" data-role="del" class="text-slate-500 hover:text-red-300 text-lg leading-none" aria-label="刪除">×</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ===== Best 30 =====
+function renderResult() {
+  const charts = new Map(allCharts().map(ch => [keyOf(ch), ch]));
+  const played = [];
+  Object.entries(state.entries).forEach(([k, e]) => {
+    const ch = charts.get(k);
+    const acc = parseFloat(e.acc);
+    if (!ch || !e.checked || isNaN(acc) || acc < 0 || acc > 100) return;
+    played.push({ ch, acc, r: songRating(acc, ch.c) });
+  });
+
+  const phi = played.filter(p => p.acc >= 100)
+    .sort((a, b) => b.ch.c - a.ch.c).slice(0, 3);
+  const best = played.slice().sort((a, b) => b.r - a.r).slice(0, 27);
+
+  const total = phi.reduce((s, p) => s + p.ch.c, 0) + best.reduce((s, p) => s + p.r, 0);
+  document.getElementById('avg').textContent = (total / 30).toFixed(4);
+  document.getElementById('meta').textContent =
+    `已計入 ${played.length} 首；B27 ${best.length}/27，Phi ${phi.length}/3。不足 30 首時，空缺以 0 計算。`;
+
+  const row = (p, i, isPhi) => `<li class="flex items-center gap-2 py-1.5 border-b border-slate-700/60 last:border-0 text-sm">
+    <span class="w-6 text-right text-slate-500">${i + 1}</span>
+    <span class="diff-${p.ch.diff} rounded px-1.5 text-xs text-white">${p.ch.diff}</span>
+    <span class="flex-1 truncate">${esc(p.ch.name)}</span>
+    <span class="text-slate-400 text-xs">${p.ch.c.toFixed(1)} / ${p.acc.toFixed(2)}%</span>
+    <span class="w-16 text-right font-semibold ${isPhi ? 'phi' : ''}">${(isPhi ? p.ch.c : p.r).toFixed(3)}</span>
+  </li>`;
+
+  const block = (title, arr, isPhi) => `<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-4">
+    <h2 class="font-semibold mb-2 ${isPhi ? 'phi' : ''}">${title}</h2>
+    ${arr.length ? `<ul>${arr.map((p, i) => row(p, i, isPhi)).join('')}</ul>`
+      : '<p class="text-sm text-slate-400">還沒有資料。勾選曲目並輸入 Acc 後會顯示在這裡。</p>'}
+  </div>`;
+
+  document.getElementById('result').innerHTML =
+    block('Phi 3', phi, true) + block('Best 27', best, false);
+}
+
+// ===== 事件 =====
+const list = document.getElementById('chartList');
+
+list.addEventListener('change', ev => {
+  const t = ev.target, k = t.dataset.k;
+  if (t.dataset.role !== 'chk') return;
+  state.entries[k] = Object.assign({}, state.entries[k], { checked: t.checked });
+  save(); renderResult();
+});
+
+list.addEventListener('input', ev => {
+  const t = ev.target, k = t.dataset.k;
+  if (t.dataset.role !== 'acc') return;
+  const e = Object.assign({}, state.entries[k], { acc: t.value });
+  if (t.value !== '' && !e.checked) { // 輸入 Acc 時自動勾選
+    e.checked = true;
+    t.closest('div.flex').querySelector('[data-role=chk]').checked = true;
+  }
+  state.entries[k] = e;
+  save(); renderResult();
+});
+
+list.addEventListener('click', ev => {
+  const t = ev.target;
+  if (t.dataset.role !== 'del') return;
+  const [name, diff] = t.dataset.k.split('|');
+  state.custom = state.custom.filter(s => !(s.name === name && s.diff === diff));
+  delete state.entries[t.dataset.k];
+  save(); renderList(); renderResult();
+});
+
+document.getElementById('search').addEventListener('input', renderList);
+
+document.getElementById('cAdd').addEventListener('click', () => {
+  const name = document.getElementById('cName').value.trim();
+  const diff = document.getElementById('cDiff').value;
+  const c = parseFloat(document.getElementById('cConst').value);
+  const msg = document.getElementById('cMsg');
+  if (!name || isNaN(c) || c <= 0 || c > 20) { msg.textContent = '請輸入曲名，以及 0–20 之間的定數。'; return; }
+  const exists = allCharts().some(ch => ch.name === name && ch.diff === diff);
+  if (exists) { msg.textContent = `${name} ${diff} 已經在清單中。`; return; }
+  state.custom.push({ name, diff, c });
+  save(); renderList(); renderResult();
+  msg.textContent = `已新增 ${name} ${diff}。`;
+  document.getElementById('cName').value = '';
+  document.getElementById('cConst').value = '';
+});
+
+document.getElementById('clearAll').addEventListener('click', () => {
+  if (!confirm('要清除所有勾選與 Acc 紀錄嗎？自訂曲目會保留。')) return;
+  state.entries = {};
+  save(); renderList(); renderResult();
+});
+
+renderList();
+renderResult();
+</script>
+</body>
+</html>

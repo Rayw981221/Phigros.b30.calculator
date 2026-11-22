@@ -60,19 +60,14 @@
 
   <footer class="mt-8 text-xs text-slate-500 leading-relaxed">
     單曲 R = ((Acc − 55) ÷ 45)² × 定數（Acc 低於 70% 為 0）。Phi（Acc 100%）才進 Phi 3，取定數最高的 3 首；其餘取單曲 R 最高的 27 首。
-    內建曲目只是範例，定數請自行對照最新資料修改。
+    曲目與定數來自 songs.json，遊戲更新後請自行確認是否為最新。
   </footer>
 </div>
 
 <script>
-// ===== 內建範例資料（定數僅供示範，請自行校正或新增）=====
-const SAMPLE = [
-  { name: 'Introduction',  c: { EZ: 2.0, HD: 5.0, IN: 8.0 } },
-  { name: 'Glaciaxion',    c: { EZ: 4.0, HD: 9.0, IN: 15.0 } },
-  { name: 'Spasmodic',     c: { EZ: 3.0, HD: 8.0, IN: 14.0, AT: 16.0 } },
-  { name: 'Sample Song A', c: { EZ: 5.0, HD: 10.0, IN: 13.5, AT: 16.5 } },
-  { name: 'Sample Song B', c: { HD: 7.5, IN: 12.0 } }
-];
+// ===== 曲目資料：由 songs.json 載入 =====
+let SONGS = [];
+let loadError = '';
 const DIFFS = ['EZ', 'HD', 'IN', 'AT'];
 const KEY = 'phigrosB30.v1';
 
@@ -96,7 +91,7 @@ function songRating(acc, c) {
 
 function allCharts() {
   const list = [];
-  SAMPLE.forEach(s => DIFFS.forEach(d => {
+  SONGS.forEach(s => DIFFS.forEach(d => {
     if (s.c[d] != null) list.push({ name: s.name, diff: d, c: s.c[d], custom: false });
   }));
   state.custom.forEach(s => list.push({ name: s.name, diff: s.diff, c: s.c, custom: true }));
@@ -114,7 +109,7 @@ function renderList() {
   const box = document.getElementById('chartList');
   const rows = allCharts().filter(ch => ch.name.toLowerCase().includes(q));
   if (!rows.length) {
-    box.innerHTML = '<p class="text-sm text-slate-400 p-3">找不到曲目。可以在下方新增自訂曲目。</p>';
+    box.innerHTML = `<p class="text-sm text-slate-400 p-3">${esc(loadError || '找不到曲目。可以在下方新增自訂曲目。')}</p>`;
     return;
   }
   box.innerHTML = rows.map(ch => {
@@ -226,8 +221,55 @@ document.getElementById('clearAll').addEventListener('click', () => {
   save(); renderList(); renderResult();
 });
 
-renderList();
-renderResult();
+// ===== 載入 songs.json =====
+// 支援兩種格式：
+// 1) [{ "name": "曲名", "c": { "EZ": 5.5, "HD": 9.7, "IN": 12.1, "AT": 16.0 } }]
+// 2) { "曲名@作曲": [{ "song": "曲名", "composer": "作曲", "chart": { "IN": [{ "difficulty": "12.1" }] } }] }
+function normalizeSongs(raw) {
+  let list = [];
+  if (Array.isArray(raw)) {
+    list = raw.filter(s => s && s.name && s.c);
+  } else {
+    Object.values(raw).forEach(versions => {
+      (Array.isArray(versions) ? versions : [versions]).forEach(v => {
+        const name = String(v.song || '').trim();
+        if (!name) return; // 沒有曲名的資料先略過
+        const c = {};
+        DIFFS.forEach(d => {
+          const item = v.chart && v.chart[d] && v.chart[d][0];
+          const n = item ? parseFloat(item.difficulty) : NaN;
+          if (!isNaN(n)) c[d] = n;
+        });
+        if (Object.keys(c).length) list.push({ name, composer: String(v.composer || '').trim(), c });
+      });
+    });
+  }
+  // 不同曲子同名時（例如 Another Me），在曲名後面加上作曲者
+  const count = {};
+  list.forEach(s => { count[s.name] = (count[s.name] || 0) + 1; });
+  list.forEach(s => { if (count[s.name] > 1 && s.composer) s.name = `${s.name} (${s.composer})`; });
+  return list.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function loadSongs() {
+  try {
+    const res = await fetch('songs.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    SONGS = normalizeSongs(await res.json());
+    if (!SONGS.length) loadError = 'songs.json 裡沒有可用的曲目。';
+  } catch (e) {
+    console.error('載入 songs.json 失敗', e);
+    let why = e.message;
+    if (e instanceof SyntaxError) why = 'JSON 格式有誤：' + e.message;
+    else if (/HTTP 404/.test(why)) why = '找不到檔案（404）。請確認檔名是 songs.json（注意大小寫），並和 index.html 在同一層。';
+    else if (e instanceof TypeError) why = '瀏覽器擋下請求。若是直接雙擊開啟 index.html，請改用 GitHub Pages 或本機伺服器。';
+    loadError = '無法載入 songs.json：' + why;
+  }
+  renderList();
+  renderResult();
+}
+
+loadSongs();
 </script>
 </body>
 </html>

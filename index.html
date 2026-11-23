@@ -77,13 +77,17 @@
 
   /* 曲目列 */
   #chartList { scrollbar-width: thin; scrollbar-color: #3a4290 transparent; }
-  .row {
-    display: flex; align-items: center; gap: .65rem; padding: .55rem .75rem;
-    border-radius: 10px; border: 1px solid var(--edge); border-left: 4px solid var(--c);
-    background: rgba(20, 24, 54, .62); transition: background .15s, box-shadow .15s;
+  .song { padding: .6rem .75rem .75rem; border-radius: 12px; border: 1px solid var(--edge); background: rgba(20, 24, 54, .62); }
+  .song-head { display: flex; align-items: baseline; gap: .5rem; min-width: 0; margin-bottom: .5rem; }
+  .cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); gap: .5rem; }
+  .cell {
+    padding: .4rem .5rem .5rem; border-radius: 8px; border: 1px solid var(--edge); border-left: 4px solid var(--c);
+    background: rgba(10, 12, 32, .45); transition: background .15s, box-shadow .15s;
   }
-  .row:hover { background: rgba(34, 40, 86, .78); }
-  .row.on { background: rgba(44, 50, 108, .80); box-shadow: 0 0 0 1px rgba(255, 226, 122, .40), 0 0 18px -6px rgba(255, 226, 122, .5); }
+  .cell:hover { background: rgba(34, 40, 86, .78); }
+  .cell.on { background: rgba(44, 50, 108, .80); box-shadow: 0 0 0 1px rgba(255, 226, 122, .40), 0 0 16px -6px rgba(255, 226, 122, .5); }
+  .cell-top { display: flex; align-items: center; gap: .4rem; margin-bottom: .35rem; font-size: .85rem; cursor: pointer; }
+  .cell .acc { width: 100%; }
   input[type=checkbox] { accent-color: var(--gold); width: 1.15rem; height: 1.15rem; flex: none; }
   .acc { width: 6rem; padding: .3rem .5rem; text-align: right; font-size: .9rem; border-radius: 8px; border: 1px solid var(--edge); background: rgba(10, 12, 32, .85); color: var(--ink); }
   .badge { display: inline-block; min-width: 2rem; padding: .05rem .4rem; border-radius: 4px; text-align: center; font-size: .75rem; font-weight: 700; color: #0d0f24; }
@@ -119,13 +123,20 @@
   <div class="grid lg:grid-cols-2 gap-6">
     <!-- 左：曲目清單 -->
     <section>
-      <div class="flex gap-2 mb-3">
-        <input id="search" type="search" placeholder="搜尋曲名" class="field min-w-0 flex-1">
+      <div class="flex flex-wrap gap-2 mb-3">
+        <input id="search" type="search" placeholder="搜尋曲名" class="field min-w-[10rem] flex-1 basis-full sm:basis-0">
         <select id="sort" aria-label="排序方式" class="field text-sm">
           <option value="default">依資料順序</option>
           <option value="desc">定數 高到低</option>
           <option value="asc">定數 低到高</option>
           <option value="name">曲名</option>
+        </select>
+        <select id="sortDiff" aria-label="排序依據的難度" class="field text-sm">
+          <option value="max">預設</option>
+          <option value="AT">依 AT</option>
+          <option value="IN">依 IN</option>
+          <option value="HD">依 HD</option>
+          <option value="EZ">依 EZ</option>
         </select>
       </div>
       <div id="chartList" class="space-y-2 max-h-[62vh] overflow-y-auto pr-1"></div>
@@ -169,6 +180,9 @@
 // ===== 曲目資料（自己手動新增）=====
 // 格式：{ name: '曲名', c: { EZ: 定數, HD: 定數, IN: 定數, AT: 定數 } }
 // 沒有的難度直接不寫，例如只有 HD 和 IN：c: { HD: 7.5, IN: 12.0 }
+// 同曲名但不同的歌（例如 Another Me），請加上 by（作曲者）來區分，兩首會分開顯示：
+//   { name: 'Another Me', by: 'D_AAN', c: { ... } },
+//   { name: 'Another Me', by: 'Neutral Moon', c: { ... } },
 // 下面的定數只是示範，請換成正確的資料
 const SAMPLE = [
   { name: 'Glaciaxion',  c: { EZ: 1.0, HD: 6.5, IN: 12.6 } },
@@ -233,10 +247,10 @@ const DIFFS = ['EZ', 'HD', 'IN', 'AT'];
 const KEY = 'phigrosB30.v1';
 
 // ===== 狀態 =====
-let state = { entries: {}, sort: 'default' }; // entries: { "曲名|難度": { checked, acc } }
+let state = { entries: {}, sort: 'default', sortDiff: 'max' }; // entries: { "歌曲ID|難度": { checked, acc } }
 try {
   const saved = JSON.parse(localStorage.getItem(KEY));
-  if (saved && saved.entries) state = { entries: saved.entries, sort: saved.sort || 'default' };
+  if (saved && saved.entries) state = { entries: saved.entries, sort: saved.sort || 'default', sortDiff: saved.sortDiff || 'max' };
 } catch (e) { /* 讀取失敗就用預設值 */ }
 
 function save() {
@@ -250,43 +264,84 @@ function songRating(acc, c) {
   return Math.pow((a - 55) / 45, 2) * c;
 }
 
+// 每首歌的 ID：曲名 +（選填的）作曲者。沒有 by 的歌，ID 就是曲名，和舊版紀錄相容
+const songId = s => s.name + (s.by ? '@' + s.by : '');
+
+function allSongs() {
+  return SAMPLE.map(s => ({ id: songId(s), name: s.name, by: s.by || '', c: s.c }));
+}
+
+// 展開成「一首歌的一個難度」，給計分與產圖使用
 function allCharts() {
   const list = [];
-  SAMPLE.forEach(s => DIFFS.forEach(d => {
-    if (s.c[d] != null) list.push({ name: s.name, diff: d, c: s.c[d] });
+  allSongs().forEach(s => DIFFS.forEach(d => {
+    if (s.c[d] != null) list.push({ id: s.id, name: s.name, label: s.by ? `${s.name} (${s.by})` : s.name, diff: d, c: s.c[d] });
   }));
   return list;
 }
-const keyOf = ch => ch.name + '|' + ch.diff;
+const keyOf = ch => ch.id + '|' + ch.diff;
 
 function esc(t) {
   return String(t).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
 
-// ===== 曲目清單 =====
+// ===== 曲目清單：一首歌一排，所有難度放在同一排 =====
+function sortValue(song) {
+  const d = state.sortDiff;
+  if (d === 'max') return Math.max(...DIFFS.filter(x => song.c[x] != null).map(x => song.c[x]));
+  return song.c[d] != null ? song.c[d] : null; // 沒有該難度的歌排在最後
+}
+
 function renderList() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   const box = document.getElementById('chartList');
-  const all = allCharts();
-  const rows = all.filter(ch => ch.name.toLowerCase().includes(q));
-  if (state.sort === 'desc') rows.sort((a, b) => b.c - a.c || a.name.localeCompare(b.name));
-  else if (state.sort === 'asc') rows.sort((a, b) => a.c - b.c || a.name.localeCompare(b.name));
-  else if (state.sort === 'name') rows.sort((a, b) => a.name.localeCompare(b.name) || DIFFS.indexOf(a.diff) - DIFFS.indexOf(b.diff));
+  const all = allSongs();
+
+  // 偵測重複的歌曲 ID（同曲名又沒有 by），避免兩首歌共用同一筆紀錄
+  const seen = new Set(), dups = new Set();
+  all.forEach(s => { if (seen.has(s.id)) dups.add(s.id); seen.add(s.id); });
+  const warn = dups.size
+    ? `<p class="text-xs p-2 rounded-lg" style="color: var(--gold); background: rgba(255, 226, 122, .08)">有重複的曲名：${[...dups].map(esc).join('、')}。同名但不同的歌，請在資料裡加上 by: '作曲者' 來區分。</p>`
+    : '';
+
+  const rows = all.filter(s => (s.name + ' ' + s.by).toLowerCase().includes(q));
+  if (state.sort === 'desc' || state.sort === 'asc') {
+    rows.sort((a, b) => {
+      const va = sortValue(a), vb = sortValue(b);
+      if (va == null && vb == null) return a.name.localeCompare(b.name);
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      return (state.sort === 'desc' ? vb - va : va - vb) || a.name.localeCompare(b.name);
+    });
+  } else if (state.sort === 'name') {
+    rows.sort((a, b) => a.name.localeCompare(b.name) || a.by.localeCompare(b.by));
+  }
+
   if (!rows.length) {
-    box.innerHTML = `<p class="text-sm muted p-3">${all.length ? '找不到符合的曲目。' : '還沒有曲目。請在程式碼的 SAMPLE 陣列加入曲目。'}</p>`;
+    box.innerHTML = warn + `<p class="text-sm muted p-3">${all.length ? '找不到符合的曲目。' : '還沒有曲目。請在程式碼的 SAMPLE 陣列加入曲目。'}</p>`;
     return;
   }
-  box.innerHTML = rows.map(ch => {
-    const k = keyOf(ch);
-    const e = state.entries[k] || {};
-    return `<div data-row class="row ${e.checked ? 'on' : ''}" style="--c: var(--${ch.diff})">
-      <input type="checkbox" data-k="${esc(k)}" data-role="chk" ${e.checked ? 'checked' : ''} aria-label="計入 ${esc(ch.name)} ${ch.diff}">
-      <div class="min-w-0 flex-1">
-        <div class="truncate text-sm font-medium">${esc(ch.name)}</div>
-        <div class="mt-0.5 flex items-center gap-2 text-xs muted"><span class="badge diff-${ch.diff}">${ch.diff}</span><span>定數 <b class="num">${ch.c.toFixed(1)}</b></span></div>
+
+  box.innerHTML = warn + rows.map(song => {
+    const cells = DIFFS.filter(d => song.c[d] != null).map(d => {
+      const k = song.id + '|' + d;
+      const e = state.entries[k] || {};
+      return `<div data-row class="cell ${e.checked ? 'on' : ''}" style="--c: var(--${d})">
+        <label class="cell-top">
+          <input type="checkbox" data-k="${esc(k)}" data-role="chk" ${e.checked ? 'checked' : ''} aria-label="計入 ${esc(song.name)} ${d}">
+          <span class="badge diff-${d}">${d}</span>
+          <b class="num">${song.c[d].toFixed(1)}</b>
+        </label>
+        <input type="number" data-k="${esc(k)}" data-role="acc" min="0" max="100" step="0.01" placeholder="Acc %"
+          value="${e.acc != null ? e.acc : ''}" class="acc">
+      </div>`;
+    }).join('');
+    return `<div class="song">
+      <div class="song-head">
+        <span class="truncate text-sm font-medium">${esc(song.name)}</span>
+        ${song.by ? `<span class="truncate text-xs muted">${esc(song.by)}</span>` : ''}
       </div>
-      <input type="number" data-k="${esc(k)}" data-role="acc" min="0" max="100" step="0.01" placeholder="Acc %"
-        value="${e.acc != null ? e.acc : ''}" class="acc">
+      <div class="cells">${cells}</div>
     </div>`;
   }).join('');
 }
@@ -315,7 +370,7 @@ function renderResult() {
   const row = (p, i, isPhi) => `<li class="rrow">
     <span class="rank num">${i + 1}</span>
     <span class="badge diff-${p.ch.diff}">${p.ch.diff}</span>
-    <span class="flex-1 truncate">${esc(p.ch.name)}</span>
+    <span class="flex-1 truncate">${esc(p.ch.label)}</span>
     <span class="text-xs muted num">${p.ch.c.toFixed(1)} / ${p.acc.toFixed(2)}%</span>
     <span class="rval num ${isPhi ? 'phi' : ''}">${(isPhi ? p.ch.c : p.r).toFixed(3)}</span>
   </li>`;
@@ -394,7 +449,7 @@ function drawCard(ctx, x, y, w, h, p, rank, isPhi) {
 
   ctx.font = `700 ${f.name}px "Noto Sans TC", sans-serif`;
   ctx.fillStyle = IMG_COLOR.ink;
-  ctx.fillText(fitText(ctx, p.ch.name, w - 64 - pad), nameX, y + h * 0.45);
+  ctx.fillText(fitText(ctx, p.ch.label, w - 64 - pad), nameX, y + h * 0.45);
 
   ctx.font = `700 ${f.sub}px Rajdhani, "Noto Sans TC", sans-serif`;
   ctx.fillStyle = IMG_COLOR[p.ch.diff];
@@ -418,7 +473,7 @@ async function makeImage() {
   msg.textContent = '產生中…';
 
   // 等字體載入完成，避免圖片裡出現預設字體
-  const names = [...res.phi, ...res.best].map(p => p.ch.name).join('');
+  const names = [...res.phi, ...res.best].map(p => p.ch.label).join('');
   try {
     await Promise.all([
       document.fonts.load('700 52px Rajdhani'),
@@ -549,6 +604,16 @@ document.getElementById('sort').addEventListener('change', ev => {
   save(); renderList();
 });
 
+document.getElementById('sortDiff').addEventListener('change', ev => {
+  state.sortDiff = ev.target.value;
+  // 選了指定難度，但排序方式不是「定數」時，自動切成「定數 高到低」，否則看不出效果
+  if (state.sortDiff !== 'max' && state.sort !== 'desc' && state.sort !== 'asc') {
+    state.sort = 'desc';
+    document.getElementById('sort').value = 'desc';
+  }
+  save(); renderList();
+});
+
 // 清除紀錄：改用頁面內的二次確認。
 // 有些瀏覽器（例如 App 內建瀏覽器）會擋掉 confirm() 對話框，會讓按鈕看起來沒反應。
 let clearTimer = null;
@@ -575,6 +640,7 @@ document.getElementById('clearAll').addEventListener('click', ev => {
 document.getElementById('makeImg').addEventListener('click', makeImage);
 
 document.getElementById('sort').value = state.sort;
+document.getElementById('sortDiff').value = state.sortDiff;
 renderList();
 renderResult();
 </script>
